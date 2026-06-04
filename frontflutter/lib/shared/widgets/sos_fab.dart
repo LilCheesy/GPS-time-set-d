@@ -48,7 +48,7 @@ class _SosFABState extends State<SosFAB> with TickerProviderStateMixin {
               height: AppConstants.sosButtonSize + 20,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.red.withOpacity(0.2),
+                color: Colors.red.withValues(alpha: 0.2),
               ),
             ),
           ),

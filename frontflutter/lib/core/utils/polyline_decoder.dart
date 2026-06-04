@@ -1,26 +1,56 @@
 import 'dart:math' as math;
-import 'package:latlong2/latlong2.dart';
-import 'package:polyline/polyline.dart' as polyline_lib;
+import 'package:latlong2/latlong.dart';
 
+/// Decodes polyline-encoded strings (precision 5 or 6) into coordinates.
+/// This replaces the removed 'polyline' package with a manual implementation.
 class PolylineDecoder {
-  /// Decode a polyline6 encoded string to a list of LatLng points
-  static List<LatLng> decodePolyline(String encodedPolyline) {
+  /// Decode a polyline-encoded string to a list of LatLng points.
+  ///
+  /// [encodedPolyline] - The encoded polyline string from the routing API.
+  /// [precision] - 5 for Google-style, 6 for OSRM/TrackAsia-style (polyline6).
+  static List<LatLng> decodePolyline(String encodedPolyline, {int precision = 6}) {
     try {
-      final decoded = polyline_lib.Polyline.fromEncoded(
-        encodedPolyline,
-        precision: 6,
-      );
+      final List<LatLng> points = [];
+      final int factor = math.pow(10, precision).toInt();
+      int index = 0;
+      int lat = 0;
+      int lng = 0;
 
-      return decoded.coordinates
-          .map((coord) => LatLng(coord[0], coord[1]))
-          .toList();
+      while (index < encodedPolyline.length) {
+        // Decode latitude
+        int shift = 0;
+        int result = 0;
+        int byte;
+        do {
+          byte = encodedPolyline.codeUnitAt(index++) - 63;
+          result |= (byte & 0x1F) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        int dlat = ((result & 1) != 0) ? ~(result >> 1) : (result >> 1);
+        lat += dlat;
+
+        // Decode longitude
+        shift = 0;
+        result = 0;
+        do {
+          byte = encodedPolyline.codeUnitAt(index++) - 63;
+          result |= (byte & 0x1F) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        int dlng = ((result & 1) != 0) ? ~(result >> 1) : (result >> 1);
+        lng += dlng;
+
+        points.add(LatLng(lat / factor, lng / factor));
+      }
+
+      return points;
     } catch (e) {
       print('Error decoding polyline: $e');
       return [];
     }
   }
 
-  /// Calculate the closest point on the polyline to the given location
+  /// Calculate the closest point index on the polyline to the given location
   static int getClosestPointIndex(
     List<LatLng> polylinePoints,
     LatLng currentLocation,
@@ -31,7 +61,7 @@ class PolylineDecoder {
     int closestIndex = 0;
 
     for (int i = 0; i < polylinePoints.length; i++) {
-      final distance = _haversineDistance(
+      final distance = haversineDistance(
         currentLocation.latitude,
         currentLocation.longitude,
         polylinePoints[i].latitude,
@@ -47,8 +77,9 @@ class PolylineDecoder {
     return closestIndex;
   }
 
-  /// Calculate Haversine distance between two points in meters
-  static double _haversineDistance(
+  /// Calculate Haversine distance between two points in meters.
+  /// Made public so it can be reused across the app.
+  static double haversineDistance(
     double lat1,
     double lng1,
     double lat2,
