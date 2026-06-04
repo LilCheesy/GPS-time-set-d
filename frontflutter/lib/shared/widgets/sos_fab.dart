@@ -62,11 +62,11 @@ class _SosFABState extends State<SosFAB> with TickerProviderStateMixin {
                   width: 30,
                   height: 30,
                   child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                     strokeWidth: 3,
                   ),
                 )
-              : Icon(
+              : const Icon(
                   Icons.emergency,
                   size: 32,
                 ),

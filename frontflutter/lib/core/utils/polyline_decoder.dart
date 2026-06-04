@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:latlong2/latlong2.dart';
 import 'package:polyline/polyline.dart' as polyline_lib;
 
@@ -56,25 +57,16 @@ class PolylineDecoder {
     const R = 6371000; // Earth's radius in meters
     final dLat = _toRadians(lat2 - lat1);
     final dLng = _toRadians(lng2 - lng1);
-    final a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(_toRadians(lat1)) *
-            Math.cos(_toRadians(lat2)) *
-            Math.sin(dLng / 2) *
-            Math.sin(dLng / 2);
-    final c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) *
+            math.cos(_toRadians(lat2)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
     return R * c;
   }
 
   static double _toRadians(double degrees) {
-    return degrees * (3.141592653589793 / 180);
+    return degrees * (math.pi / 180);
   }
 }
-
-class Math {
-  static double sin(double x) => math.sin(x);
-  static double cos(double x) => math.cos(x);
-  static double atan2(double y, double x) => math.atan2(y, x);
-  static double sqrt(double x) => math.sqrt(x);
-}
-
-import 'dart:math' as math;

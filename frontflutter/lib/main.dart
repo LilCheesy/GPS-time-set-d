@@ -16,7 +16,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'CareBridge',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
+        primarySwatch: Colors.red,
         useMaterial3: true,
       ),
       home: const SosScreen(),
