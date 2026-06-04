@@ -1,5 +1,7 @@
 package com.carebrigde.backjavaspring.service;
 
+import com.carebrigde.backjavaspring.dto.auth.FacilityInfo;
+import com.carebrigde.backjavaspring.dto.auth.SosMultiResponse;
 import com.carebrigde.backjavaspring.dto.auth.SosRequest;
 import com.carebrigde.backjavaspring.dto.auth.SosResponse;
 import com.carebrigde.backjavaspring.entity.MedicalFacility;
@@ -7,6 +9,7 @@ import com.carebrigde.backjavaspring.repository.MedicalFacilityRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -18,8 +21,8 @@ public class SosService {
     private final MedicalFacilityRepository facilityRepository;
     private final ZAxisService zAxisService;
 
-    private static final int SEARCH_RADIUS_METERS = 5000;
-    private static final int MAX_RESULTS = 1;
+    private static final int SEARCH_RADIUS_METERS = 10000;
+    private static final int MAX_RESULTS = 5;
     private static final double AVERAGE_SPEED_KMH = 30.0;
 
     public SosResponse processSos(SosRequest request) {
@@ -62,9 +65,63 @@ public class SosService {
                 .facilityType(nearest.getFacilityType())
                 .destLatitude(nearest.getLatitude())
                 .destLongitude(nearest.getLongitude())
-                .distanceMeters(Math.round(distanceKm * 1000.0) / 1000.0)
+                .distanceMeters(Math.round(distanceKm * 10000.0) / 10.0)
                 .estimatedMinutes(estimatedMinutes)
                 .status("SUCCESS")
+                .zMetadata(zMetadata != null ? zMetadata : Collections.emptyMap())
+                .build();
+    }
+
+    public SosMultiResponse processSosMultiple(SosRequest request) {
+        List<MedicalFacility> facilities = facilityRepository.findNearestFacilities(
+                request.getLatitude(),
+                request.getLongitude(),
+                SEARCH_RADIUS_METERS,
+                MAX_RESULTS
+        );
+
+        if (facilities.isEmpty()) {
+            return SosMultiResponse.builder()
+                    .status("NO_FACILITY_FOUND")
+                    .facilities(Collections.emptyList())
+                    .build();
+        }
+
+        List<FacilityInfo> facilityInfos = new ArrayList<>();
+        for (MedicalFacility facility : facilities) {
+            double distanceKm = calculateHaversineDistance(
+                    request.getLatitude(), request.getLongitude(),
+                    facility.getLatitude(), facility.getLongitude()
+            );
+            double distanceMeters = Math.round(distanceKm * 10000.0) / 10.0;
+            int estimatedMinutes = (int) Math.ceil((distanceKm / AVERAGE_SPEED_KMH) * 60);
+
+            facilityInfos.add(FacilityInfo.builder()
+                    .facilityId(facility.getId())
+                    .facilityName(facility.getName())
+                    .facilityAddress(facility.getAddress())
+                    .phone(facility.getPhone())
+                    .facilityType(facility.getFacilityType())
+                    .destLatitude(facility.getLatitude())
+                    .destLongitude(facility.getLongitude())
+                    .distanceMeters(distanceMeters)
+                    .estimatedMinutes(estimatedMinutes)
+                    .build());
+        }
+
+        // Z-axis check (background metadata)
+        Map<String, String> zMetadata = null;
+        if (request.getUserId() != null) {
+            zMetadata = zAxisService.extractZMetadata(
+                    request.getUserId(),
+                    request.getLatitude(),
+                    request.getLongitude()
+            );
+        }
+
+        return SosMultiResponse.builder()
+                .status("SUCCESS")
+                .facilities(facilityInfos)
                 .zMetadata(zMetadata != null ? zMetadata : Collections.emptyMap())
                 .build();
     }

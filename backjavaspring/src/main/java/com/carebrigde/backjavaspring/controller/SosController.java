@@ -1,5 +1,6 @@
 package com.carebrigde.backjavaspring.controller;
 
+import com.carebrigde.backjavaspring.dto.auth.SosMultiResponse;
 import com.carebrigde.backjavaspring.dto.auth.SosRequest;
 import com.carebrigde.backjavaspring.dto.auth.SosResponse;
 import com.carebrigde.backjavaspring.service.SosService;
@@ -18,6 +19,12 @@ public class SosController {
     @PostMapping
     public ResponseEntity<SosResponse> sendSos(@Valid @RequestBody SosRequest request) {
         SosResponse response = sosService.processSos(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/scan")
+    public ResponseEntity<SosMultiResponse> scanFacilities(@Valid @RequestBody SosRequest request) {
+        SosMultiResponse response = sosService.processSosMultiple(request);
         return ResponseEntity.ok(response);
     }
 }
