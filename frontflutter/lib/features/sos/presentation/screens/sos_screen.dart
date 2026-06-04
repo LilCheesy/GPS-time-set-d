@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong2.dart';
-import 'package:polyline/polyline.dart' as polyline_lib;
+import 'package:latlong2/latlong.dart';
 import 'package:frontflutter/core/constants/app_constants.dart';
+import 'package:frontflutter/core/utils/polyline_decoder.dart';
+import 'package:frontflutter/features/sos/data/models/facility_info.dart';
 import 'package:frontflutter/features/sos/presentation/providers/sos_provider.dart';
 import 'package:frontflutter/shared/providers/location_provider.dart';
-import 'package:frontflutter/shared/widgets/sos_fab.dart';
+import 'package:frontflutter/shared/widgets/facility_list_sheet.dart';
 import 'package:frontflutter/shared/widgets/moving_ambulance_icon.dart';
+import 'package:frontflutter/shared/widgets/navigation_info_panel.dart';
+import 'package:frontflutter/shared/widgets/sos_fab.dart';
 
 class SosScreen extends ConsumerStatefulWidget {
   const SosScreen({Key? key}) : super(key: key);
@@ -31,7 +34,7 @@ class _SosScreenState extends ConsumerState<SosScreen> {
 
   Future<void> _initializeLocation() async {
     final location = await LocationProvider.getCurrentLocation();
-    if (location != null) {
+    if (location != null && mounted) {
       setState(() {
         _currentLocation = location;
       });
@@ -39,128 +42,112 @@ class _SosScreenState extends ConsumerState<SosScreen> {
     }
   }
 
+  /// SOS button pressed → get accurate GPS → scan facilities → show list
   void _handleSosPressed() async {
+    // Step 1: Get high-accuracy GPS location
+    final accurateLocation = await LocationProvider.getHighAccuracyLocation();
+    if (accurateLocation != null && mounted) {
+      setState(() {
+        _currentLocation = accurateLocation;
+      });
+    }
+
+    if (!mounted) return;
+
+    // Step 2: Scan for nearby facilities
     final sosNotifier = ref.read(sosProvider.notifier);
-    
-    // Trigger SOS
-    await sosNotifier.sendSos(
+    await sosNotifier.scanFacilities(
       latitude: _currentLocation.latitude,
       longitude: _currentLocation.longitude,
-      userId: 1, // Replace with actual user ID from authentication
+      userId: 1, // TODO: Replace with actual user ID from authentication
     );
 
-    // Show bottom sheet with facility information
-    _showFacilityInfo();
-  }
+    if (!mounted) return;
 
-  void _showFacilityInfo() {
+    // Step 3: Show facility list bottom sheet
     final sosState = ref.read(sosProvider);
-
-    if (sosState.sosResponse?.isNoFacilityFound ?? false) {
+    if (sosState.scanResponse?.isNoFacilityFound ?? false) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('No medical facility found nearby.'),
-          backgroundColor: Colors.orange,
+          content: const Text('Không tìm thấy cơ sở y tế gần bạn.'),
+          backgroundColor: Colors.orange.shade600,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
       return;
     }
 
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      builder: (context) {
-        final response = sosState.sosResponse;
-        return Container(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Emergency Route',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  if (sosState.isLoading)
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
-              SizedBox(height: 16),
-              Text(
-                response?.facilityName ?? 'Loading...',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red.shade600,
-                ),
-              ),
-              SizedBox(height: 8),
-              Text(
-                response?.facilityAddress ?? '',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(Icons.directions_car, size: 18, color: Colors.grey),
-                  SizedBox(width: 8),
-                  Text(
-                    '${response?.distanceMeters?.toStringAsFixed(1) ?? 0} m • ~${response?.estimatedMinutes ?? 0} min',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-              SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(Icons.phone, size: 18, color: Colors.green),
-                  SizedBox(width: 8),
-                  Text(
-                    response?.phone ?? 'No phone',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.blue,
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('Close'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+    if (sosState.hasScanResults) {
+      // Fit map to show all facility markers
+      _fitMapToFacilities(sosState.facilities);
+      // Show bottom sheet for selection
+      _showFacilitySelection();
+    }
   }
 
+  /// Show the facility list bottom sheet
+  void _showFacilitySelection() async {
+    final sosState = ref.read(sosProvider);
+    final selected = await FacilityListSheet.show(
+      context,
+      facilities: sosState.facilities,
+      selectedFacility: sosState.selectedFacility,
+    );
+
+    if (selected != null && mounted) {
+      // User selected a facility → fetch route
+      final sosNotifier = ref.read(sosProvider.notifier);
+      await sosNotifier.selectFacility(
+        facility: selected,
+        userLat: _currentLocation.latitude,
+        userLng: _currentLocation.longitude,
+      );
+    }
+  }
+
+  /// Fit map camera to show all scanned facilities + user location
+  void _fitMapToFacilities(List<FacilityInfo> facilities) {
+    final points = <LatLng>[_currentLocation];
+    for (final f in facilities) {
+      if (f.destLatitude != null && f.destLongitude != null) {
+        points.add(LatLng(f.destLatitude!, f.destLongitude!));
+      }
+    }
+    if (points.length >= 2) {
+      final bounds = LatLngBounds.fromPoints(points);
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.all(60),
+        ),
+      );
+    }
+  }
+
+  /// Decode and display polyline when route changes
   void _updatePolyline() {
     final sosState = ref.read(sosProvider);
     if (sosState.route != null && sosState.route!.isSuccessful) {
       final geometry = sosState.route!.routes.first.geometry;
-      try {
-        final decoded = polyline_lib.Polyline.fromEncoded(
-          geometry,
-          precision: 6,
-        );
+      final decoded = PolylineDecoder.decodePolyline(geometry);
+      if (decoded.isNotEmpty) {
         setState(() {
-          _polylinePoints = decoded.coordinates
-              .map((coord) => LatLng(coord[0], coord[1]))
-              .toList();
+          _polylinePoints = decoded;
         });
         ref.read(sosProvider.notifier).setPolylinePoints(_polylinePoints);
-      } catch (e) {
-        print('Error decoding polyline: $e');
+
+        // Fit map to show entire route
+        if (_polylinePoints.length >= 2) {
+          final bounds = LatLngBounds.fromPoints(_polylinePoints);
+          _mapController.fitCamera(
+            CameraFit.bounds(
+              bounds: bounds,
+              padding: const EdgeInsets.all(60),
+            ),
+          );
+        }
       }
     }
   }
@@ -168,69 +155,49 @@ class _SosScreenState extends ConsumerState<SosScreen> {
   @override
   Widget build(BuildContext context) {
     final sosState = ref.watch(sosProvider);
-    final currentLocationAsync = ref.watch(currentLocationProvider);
 
-    // Update current location when stream updates
-    currentLocationAsync.whenData((location) {
-      if (location != null) {
+    // Listen for location updates
+    ref.listen<AsyncValue<LatLng>>(currentLocationProvider, (previous, next) {
+      next.whenData((location) {
         setState(() {
           _currentLocation = location;
         });
         ref.read(sosProvider.notifier).updateCurrentLocation(location);
-      }
+      });
     });
 
-    // Update polyline when route changes
+    // Listen for route changes → decode polyline
     ref.listen(sosProvider, (previous, next) {
-      if (previous?.route != next.route) {
+      if (previous?.route != next.route && next.route != null) {
         _updatePolyline();
       }
     });
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('🏥 CareBridge SOS'),
+        title: const Text('🏥 CareBridge SOS'),
         centerTitle: true,
         elevation: 2,
       ),
       body: Stack(
         children: [
-          // Map
+          // ─── MAP ───
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter: _currentLocation,
               initialZoom: AppConstants.defaultZoomLevel,
-              minZoom: AppConstants.minZoomLevel,
-              maxZoom: AppConstants.maxZoomLevel,
+              minZoom: AppConstants.minZoomLevel.toDouble(),
+              maxZoom: AppConstants.maxZoomLevel.toDouble(),
             ),
             children: [
               // OpenStreetMap tiles
               TileLayer(
                 urlTemplate:
                     'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.app',
+                userAgentPackageName: 'com.carebrigde.frontflutter',
               ),
-              // Facility marker
-              if (sosState.sosResponse?.isSuccess ?? false)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: LatLng(
-                        sosState.sosResponse!.destLatitude!,
-                        sosState.sosResponse!.destLongitude!,
-                      ),
-                      width: 40,
-                      height: 40,
-                      child: Icon(
-                        Icons.hospital_box,
-                        color: Colors.red.shade600,
-                        size: 32,
-                      ),
-                    ),
-                  ],
-                ),
-              // Polylines
+              // Polylines (traveled = grey, remaining = red)
               if (_polylinePoints.isNotEmpty)
                 PolylineLayer(
                   polylines: [
@@ -238,7 +205,7 @@ class _SosScreenState extends ConsumerState<SosScreen> {
                     if (sosState.currentPolylineIndex > 0)
                       Polyline(
                         points: _polylinePoints
-                            .sublist(0, sosState.currentPolylineIndex),
+                            .sublist(0, sosState.currentPolylineIndex + 1),
                         color: Colors.grey,
                         strokeWidth: 8,
                       ),
@@ -251,47 +218,119 @@ class _SosScreenState extends ConsumerState<SosScreen> {
                     ),
                   ],
                 ),
-              // Current location marker
+              // Markers
               MarkerLayer(
                 markers: [
-                  MovingAmbulanceIcon(
+                  // All scanned facility markers (grey, smaller)
+                  if (sosState.hasScanResults)
+                    ...sosState.facilities
+                        .where((f) =>
+                            f.facilityId !=
+                            sosState.selectedFacility?.facilityId)
+                        .map((f) => Marker(
+                              point:
+                                  LatLng(f.destLatitude!, f.destLongitude!),
+                              width: 32,
+                              height: 32,
+                              child: Icon(
+                                Icons.local_hospital,
+                                color: Colors.grey.shade500,
+                                size: 24,
+                              ),
+                            )),
+                  // Selected facility marker (red, larger)
+                  if (sosState.selectedFacility != null)
+                    Marker(
+                      point: LatLng(
+                        sosState.selectedFacility!.destLatitude!,
+                        sosState.selectedFacility!.destLongitude!,
+                      ),
+                      width: 44,
+                      height: 44,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.red.shade600,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.red.withValues(alpha: 0.4),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.local_hospital,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                    ),
+                  // User/ambulance marker
+                  MovingAmbulanceIcon.create(
                     currentLocation: _currentLocation,
                   ),
                 ],
               ),
             ],
           ),
-          // Info panel (top)
-          if (sosState.sosResponse?.isSuccess ?? false)
+
+          // ─── NAVIGATION INFO PANEL (shown when navigating) ───
+          if (sosState.isNavigating)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: NavigationInfoPanel(
+                facility: sosState.selectedFacility!,
+                routeEtaMinutes: sosState.routeEtaMinutes,
+                routeDistanceMeters: sosState.routeDistanceMeters,
+                onChangeFacility: () {
+                  ref.read(sosProvider.notifier).clearSelection();
+                  setState(() {
+                    _polylinePoints = [];
+                  });
+                  _fitMapToFacilities(sosState.facilities);
+                  _showFacilitySelection();
+                },
+              ),
+            ),
+
+          // ─── LOADING INDICATOR (scanning or fetching route) ───
+          if (sosState.isScanning || sosState.isFetchingRoute)
             Positioned(
               top: 16,
-              left: 16,
-              right: 16,
-              child: Card(
-                elevation: 4,
-                child: Padding(
-                  padding: EdgeInsets.all(12),
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.15),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
                   child: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.info, color: Colors.blue),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Route to ${sosState.sosResponse?.facilityName ?? 'facility'}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              'ETA: ~${sosState.sosResponse?.estimatedMinutes ?? 0} min',
-                              style:
-                                  Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        sosState.isScanning
+                            ? 'Đang quét cơ sở y tế...'
+                            : 'Đang tìm đường...',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
@@ -299,19 +338,30 @@ class _SosScreenState extends ConsumerState<SosScreen> {
                 ),
               ),
             ),
-          // Error message
+
+          // ─── ERROR MESSAGE ───
           if (sosState.error != null)
             Positioned(
-              bottom: 16,
+              bottom: 100,
               left: 16,
               right: 16,
               child: Card(
                 color: Colors.orange.shade600,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
                 child: Padding(
-                  padding: EdgeInsets.all(12),
-                  child: Text(
-                    sosState.error!,
-                    style: TextStyle(color: Colors.white),
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_amber, color: Colors.white),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          sosState.error!,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -320,7 +370,7 @@ class _SosScreenState extends ConsumerState<SosScreen> {
       ),
       floatingActionButton: SosFAB(
         onPressed: _handleSosPressed,
-        isLoading: sosState.isLoading,
+        isLoading: sosState.isScanning,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );

@@ -1,13 +1,16 @@
-import 'dart:math' as math;
+import 'package:frontflutter/core/utils/polyline_decoder.dart';
+import 'package:frontflutter/features/sos/data/models/facility_info.dart';
+import 'package:frontflutter/features/sos/data/models/sos_multi_response.dart';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong2.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:frontflutter/features/sos/data/datasources/sos_remote_datasource.dart';
 import 'package:frontflutter/features/sos/data/models/sos_request.dart';
 import 'package:frontflutter/features/sos/data/models/sos_response.dart';
 import 'package:frontflutter/features/sos/data/models/trackasia_route.dart';
 import 'package:frontflutter/features/sos/data/repositories/sos_repository_impl.dart';
+import 'package:frontflutter/features/sos/domain/repositories/sos_repository.dart';
 import 'package:frontflutter/shared/providers/location_provider.dart';
 
 // Providers
@@ -21,46 +24,92 @@ final sosRepositoryProvider = Provider(
 );
 
 final currentLocationProvider =
-    StreamProvider<LatLng?>((ref) => LocationProvider.getLocationStream().startWith(null));
+    StreamProvider<LatLng>((ref) => LocationProvider.getLocationStream());
 
 // State classes
 
 class SosState {
   final SosResponse? sosResponse;
+  final SosMultiResponse? scanResponse;
+  final List<FacilityInfo> facilities;
+  final FacilityInfo? selectedFacility;
   final TrackAsiaRoute? route;
   final bool isLoading;
+  final bool isScanning;
+  final bool isFetchingRoute;
   final String? error;
   final List<LatLng> polylinePoints;
   final int currentPolylineIndex;
   final LatLng? currentLocation;
+  final int? routeEtaMinutes;
+  final double? routeDistanceMeters;
 
   SosState({
     this.sosResponse,
+    this.scanResponse,
+    this.facilities = const [],
+    this.selectedFacility,
     this.route,
     this.isLoading = false,
+    this.isScanning = false,
+    this.isFetchingRoute = false,
     this.error,
     this.polylinePoints = const [],
     this.currentPolylineIndex = 0,
     this.currentLocation,
+    this.routeEtaMinutes,
+    this.routeDistanceMeters,
   });
+
+  /// Whether we are in navigation mode (facility selected + route loaded)
+  bool get isNavigating =>
+      selectedFacility != null && route != null && polylinePoints.isNotEmpty;
+
+  /// Whether we have scan results to show
+  bool get hasScanResults => facilities.isNotEmpty;
 
   SosState copyWith({
     SosResponse? sosResponse,
+    SosMultiResponse? scanResponse,
+    List<FacilityInfo>? facilities,
+    FacilityInfo? selectedFacility,
+    bool clearSelectedFacility = false,
     TrackAsiaRoute? route,
+    bool clearRoute = false,
     bool? isLoading,
+    bool? isScanning,
+    bool? isFetchingRoute,
     String? error,
+    bool clearError = false,
     List<LatLng>? polylinePoints,
     int? currentPolylineIndex,
     LatLng? currentLocation,
+    int? routeEtaMinutes,
+    bool clearRouteEta = false,
+    double? routeDistanceMeters,
+    bool clearRouteDistance = false,
   }) {
     return SosState(
       sosResponse: sosResponse ?? this.sosResponse,
-      route: route ?? this.route,
+      scanResponse: scanResponse ?? this.scanResponse,
+      facilities: facilities ?? this.facilities,
+      selectedFacility: clearSelectedFacility
+          ? null
+          : (selectedFacility ?? this.selectedFacility),
+      route: clearRoute ? null : (route ?? this.route),
       isLoading: isLoading ?? this.isLoading,
-      error: error ?? this.error,
+      isScanning: isScanning ?? this.isScanning,
+      isFetchingRoute: isFetchingRoute ?? this.isFetchingRoute,
+      error: clearError ? null : (error ?? this.error),
       polylinePoints: polylinePoints ?? this.polylinePoints,
       currentPolylineIndex: currentPolylineIndex ?? this.currentPolylineIndex,
       currentLocation: currentLocation ?? this.currentLocation,
+      routeEtaMinutes: clearRouteEta
+          ? null
+          : (routeEtaMinutes ?? this.routeEtaMinutes),
+      routeDistanceMeters: clearRouteDistance
+          ? null
+          : (routeDistanceMeters ?? this.routeDistanceMeters),
     );
   }
 }
@@ -68,16 +117,107 @@ class SosState {
 // Notifier
 
 class SosNotifier extends StateNotifier<SosState> {
-  final SosRepositoryImpl _repository;
+  final SosRepository _repository;
 
   SosNotifier(this._repository) : super(SosState());
 
+  /// Step 1: Scan for nearby facilities
+  Future<void> scanFacilities({
+    required double latitude,
+    required double longitude,
+    int? userId,
+  }) async {
+    state = state.copyWith(
+      isScanning: true,
+      clearError: true,
+      // Reset previous navigation state
+      clearSelectedFacility: true,
+      clearRoute: true,
+      polylinePoints: [],
+      currentPolylineIndex: 0,
+      clearRouteEta: true,
+      clearRouteDistance: true,
+    );
+
+    try {
+      final request = SosRequest(
+        latitude: latitude,
+        longitude: longitude,
+        userId: userId,
+      );
+
+      final response = await _repository.scanFacilities(request);
+      state = state.copyWith(
+        scanResponse: response,
+        facilities: response.facilities,
+        isScanning: false,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isScanning: false,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Step 2: User selects a facility → fetch route
+  Future<void> selectFacility({
+    required FacilityInfo facility,
+    required double userLat,
+    required double userLng,
+  }) async {
+    state = state.copyWith(
+      selectedFacility: facility,
+      isFetchingRoute: true,
+      clearError: true,
+      // Clear previous route
+      clearRoute: true,
+      polylinePoints: [],
+      clearRouteEta: true,
+      clearRouteDistance: true,
+    );
+
+    try {
+      final route = await _repository.getRoute(
+        userLat: userLat,
+        userLng: userLng,
+        destLat: facility.destLatitude!,
+        destLng: facility.destLongitude!,
+      );
+
+      if (route.isSuccessful && route.routes.isNotEmpty) {
+        final routeObj = route.routes.first;
+        // Extract ETA from TrackAsia (duration is in seconds)
+        final etaMinutes = (routeObj.duration / 60).ceil();
+        final distanceMeters = routeObj.distance;
+
+        state = state.copyWith(
+          route: route,
+          isFetchingRoute: false,
+          routeEtaMinutes: etaMinutes,
+          routeDistanceMeters: distanceMeters,
+        );
+      } else {
+        state = state.copyWith(
+          isFetchingRoute: false,
+          error: 'Không tìm được đường đi. Thử cơ sở khác.',
+        );
+      }
+    } catch (e) {
+      state = state.copyWith(
+        isFetchingRoute: false,
+        error: 'Lỗi tìm đường: $e',
+      );
+    }
+  }
+
+  /// Legacy: Send SOS (single facility — backward compatibility)
   Future<void> sendSos({
     required double latitude,
     required double longitude,
     int? userId,
   }) async {
-    state = state.copyWith(isLoading: true, error: null);
+    state = state.copyWith(isLoading: true, clearError: true);
 
     try {
       final request = SosRequest(
@@ -90,11 +230,9 @@ class SosNotifier extends StateNotifier<SosState> {
       state = state.copyWith(
         sosResponse: response,
         isLoading: false,
-        error: null,
       );
 
       if (response.isSuccess) {
-        // Automatically fetch route after SOS is sent
         await fetchRoute(
           userLat: latitude,
           userLng: longitude,
@@ -125,9 +263,6 @@ class SosNotifier extends StateNotifier<SosState> {
       );
 
       if (route.isSuccessful && route.routes.isNotEmpty) {
-        // Decode polyline from first route
-        final geometry = route.routes.first.geometry;
-        // Polyline decoding will be done in the UI layer
         state = state.copyWith(route: route);
       } else {
         state = state.copyWith(
@@ -144,27 +279,12 @@ class SosNotifier extends StateNotifier<SosState> {
   void updateCurrentLocation(LatLng location) {
     state = state.copyWith(currentLocation: location);
 
-    // Update polyline index if we have polyline points
-    if (state.polylinePoints.isNotEmpty && state.sosResponse?.isSuccess == true) {
-      // Find closest point on polyline
-      double minDistance = double.infinity;
-      int closestIndex = 0;
-
-      for (int i = 0; i < state.polylinePoints.length; i++) {
-        final point = state.polylinePoints[i];
-        final distance = _haversineDistance(
-          location.latitude,
-          location.longitude,
-          point.latitude,
-          point.longitude,
-        );
-
-        if (distance < minDistance) {
-          minDistance = distance;
-          closestIndex = i;
-        }
-      }
-
+    // Update polyline index if navigating
+    if (state.polylinePoints.isNotEmpty && state.isNavigating) {
+      final closestIndex = PolylineDecoder.getClosestPointIndex(
+        state.polylinePoints,
+        location,
+      );
       state = state.copyWith(currentPolylineIndex: closestIndex);
     }
   }
@@ -173,25 +293,20 @@ class SosNotifier extends StateNotifier<SosState> {
     state = state.copyWith(polylinePoints: points);
   }
 
+  /// Go back to facility selection (clear route but keep scan results)
+  void clearSelection() {
+    state = state.copyWith(
+      clearSelectedFacility: true,
+      clearRoute: true,
+      polylinePoints: [],
+      currentPolylineIndex: 0,
+      clearRouteEta: true,
+      clearRouteDistance: true,
+    );
+  }
+
   void reset() {
     state = SosState();
-  }
-
-  double _haversineDistance(double lat1, double lng1, double lat2, double lng2) {
-    const R = 6371000; // Earth's radius in meters
-    final dLat = _toRadians(lat2 - lat1);
-    final dLng = _toRadians(lng2 - lng1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_toRadians(lat1)) *
-            math.cos(_toRadians(lat2)) *
-            math.sin(dLng / 2) *
-            math.sin(dLng / 2);
-    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    return R * c;
-  }
-
-  double _toRadians(double degrees) {
-    return degrees * (math.pi / 180);
   }
 }
 
@@ -199,5 +314,5 @@ class SosNotifier extends StateNotifier<SosState> {
 
 final sosProvider = StateNotifierProvider<SosNotifier, SosState>((ref) {
   final repository = ref.watch(sosRepositoryProvider);
-  return SosNotifier(repository as SosRepositoryImpl);
+  return SosNotifier(repository);
 });
