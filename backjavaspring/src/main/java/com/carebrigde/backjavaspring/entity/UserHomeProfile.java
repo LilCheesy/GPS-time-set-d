@@ -7,7 +7,7 @@ import org.locationtech.jts.geom.Point;
 @Entity
 @Table(name = "user_home_profiles", indexes = {
     @Index(name = "idx_home_user", columnList = "user_id"),
-    @Index(name = "idx_home_location", columnList = "home_location", using = "GIST")
+    @Index(name = "idx_home_location", columnList = "home_location")
 })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class UserHomeProfile {
@@ -37,6 +37,7 @@ public class UserHomeProfile {
     @Column
     private String roomNumber;
 
+    @Builder.Default
     @Column(nullable = false)
     private Boolean isPrimaryHome = true;
 }

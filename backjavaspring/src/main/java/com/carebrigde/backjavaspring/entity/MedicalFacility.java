@@ -6,7 +6,7 @@ import org.locationtech.jts.geom.Point;
 
 @Entity
 @Table(name = "medical_facilities", indexes = {
-    @Index(name = "idx_facility_location", columnList = "location", using = "GIST")
+    @Index(name = "idx_facility_location", columnList = "location")
 })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class MedicalFacility {
@@ -35,6 +35,7 @@ public class MedicalFacility {
     @Column(nullable = false, columnDefinition = "geometry(Point, 4326)")
     private Point location;
 
+    @Builder.Default
     @Column(nullable = false)
     private Boolean isActive = true;
 }

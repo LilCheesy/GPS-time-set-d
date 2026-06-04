@@ -1,7 +1,6 @@
 package com.carebrigde.backjavaspring.repository;
 
 import com.carebrigde.backjavaspring.entity.UserHomeProfile;
-import org.locationtech.jts.geom.Point;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -11,15 +10,15 @@ import org.springframework.stereotype.Repository;
 public interface UserHomeProfileRepository extends JpaRepository<UserHomeProfile, Long> {
 
     @Query(value = """
-        SELECT h FROM UserHomeProfile h
-        WHERE h.userId = :userId
+        SELECT * FROM user_home_profiles h
+        WHERE h.user_id = :userId
         AND ST_DWithin(
-            h.homeLocation,
+            h.home_location::geography,
             ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
             :radiusMeters
         )
         LIMIT 1
-        """)
+        """, nativeQuery = true)
     UserHomeProfile findHomeWithinRadius(
             @Param("userId") Long userId,
             @Param("lat") Double lat,
