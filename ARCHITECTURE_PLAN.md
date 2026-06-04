@@ -55,54 +55,88 @@
 
 ```
 ═══════════════════════════════════════════════════════════════════════════
-  TIMELINE (target: complete in 1-2 seconds)
+  TIMELINE — LUỒNG MỚI (SCAN → CHỌN → DẪN ĐƯỜNG)
 ═══════════════════════════════════════════════════════════════════════════
 
-  T+0.0s    👩 MẸ BẦU BẤM NÚT SOS
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  PHASE 1: XÁC ĐỊNH VỊ TRÍ + QUÉT CƠ SỞ Y TẾ (tự động, ~1s)     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  T+0.0s    👩 MẸ BẦU BẤM NÚT SOS 🔴
                │
-               ├──────────────────────────────────────┐  (Luồng A — HIỆN ẢNH)
-               │                                      │
-               ▼                                      │
-  T+0.0s    📍 LẤY GPS (lat, lng)                    │
-               │                                      │
-  T+0.1s    📤 Gửi POST /api/sos                     │
-            { lat, lng, userId }                     │
-               │                                      │
-               │◀─────────────────────────────────────┤  (Luồng B — NGẦM)
-  T+0.2s    🚑 BE NHẬN REQUEST                          │
-               │                                      │
-  T+0.3s    🔍 PostGIS KNN: Tìm bệnh viện gần nhất    │
-            SELECT ... ORDER BY location <-> point    │
-               │                                      │
-  T+0.4s    📏 Tính khoảng cách (Haversine)           │
-            + ETA estimation                          │
-               │                                      │
-  T+0.5s    🔎 Z-AXIS CHECK (NGẦM):                  │
-            - User home trong bán kính 50m?           │
-            - Nếu CÓ → gắn floor/room vào metadata    │
-            - Gửi SMS/call cứu hộ (future)            │
-               │                                      │
-  T+0.6s    ✅ TRẢ VỀ SosResponse                     │
-            { destLat, destLng, facility info,        │
-              zMetadata }                             │
-               │                                      │
-  T+0.7s    📱 FE NHẬN RESPONSE                       │
-               │                                      │
-  T+0.8s    🗺️ Gọi TrackAsia Routing API             │
-            GET /v1/route?point=lat,lng|dest_lat,...  │
-               │                                      │
-  T+1.0s    📐 Nhận polyline (điểm dạng đường)         │
-               │                                      │
-  T+1.1s    🖌️ VẼ ĐƯỜNG LÊN MAP                      │
-            - Đoạn ĐÃ ĐI → màu XÁM                    │
-            - Đoạn CHƯA ĐI → màu ĐỎ                  │
-            - Icon 🚑 di chuyển mượt dọc polyline     │
-               │                                      │
-  T+1.5s    ✅ HOÀN TẤT — MẸ BẦU THẤY ĐƯỜNG          │
+               ▼
+  T+0.1s    📍 LẤY GPS CHÍNH XÁC (High Accuracy, fresh fix)
+            - Thử LocationAccuracy.best (timeout 5s)
+            - Nếu timeout → fallback LocationAccuracy.high
+            - Không dùng cache → tọa độ mới nhất
+               │
+               ▼
+  T+0.3s    📤 Gửi POST /api/sos/scan
+            { lat, lng, userId }
+               │
+               ▼
+  T+0.4s    🚑 BACKEND XỬ LÝ:
+            ├── 🔍 PostGIS KNN: Tìm 5 cơ sở y tế gần nhất (≤10km)
+            │   SELECT * ORDER BY location <-> point LIMIT 5
+            ├── 📏 Tính khoảng cách + ETA ước tính (Haversine) cho MỖI cơ sở
+            └── 🔎 Z-AXIS CHECK (ngầm): kiểm tra user ở nhà → gắn metadata
+               │
+  T+0.6s    ✅ TRẢ VỀ SosMultiResponse
+            { status, facilities: [{name, distance, eta}, ...], zMetadata }
+               │
+               ▼
+  T+0.7s    📱 FE HIỂN THỊ:
+            ├── 🗺️ Markers TẤT CẢ cơ sở y tế trên bản đồ
+            └── 📋 Bottom Sheet: danh sách cơ sở (tên, khoảng cách, ETA)
+                Cơ sở gần nhất được đánh dấu "Gần nhất" ✅
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  PHASE 2: USER CHỌN CƠ SỞ Y TẾ (chờ user tap)                   │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  T+???     👩 CHỌN 1 CƠ SỞ từ danh sách (tap vào card hoặc marker)
+               │
+               ▼
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  PHASE 3: TÌM ĐƯỜNG + DẪN ĐƯỜNG (tự động sau khi chọn, ~0.5s)   │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  T+0.0s    🗺️ Gọi TrackAsia Routing API
+            GET /v1/route/v1/driving/{user_lng,lat};{dest_lng,lat}
+            ?overview=full&geometries=polyline6&steps=true
+               │
+  T+0.3s    📐 Nhận route:
+            ├── polyline geometry (chuỗi encoded)
+            ├── distance (mét) — khoảng cách THỰC TẾ theo đường đi
+            └── duration (giây) — ETA CHÍNH XÁC từ OSRM engine
+               │
+  T+0.4s    🖌️ VẼ ĐƯỜNG LÊN MAP:
+            ├── Decode polyline6 → List<LatLng>
+            ├── Đoạn ĐÃ ĐI → polyline MÀU XÁM (width: 8)
+            ├── Đoạn CHƯA ĐI → polyline MÀU ĐỎ (width: 8)
+            └── Marker cơ sở được chọn → ICON ĐỎ TO
+               │
+  T+0.5s    📊 HIỂN THỊ NAVIGATION PANEL:
+            ├── Tên cơ sở y tế
+            ├── Khoảng cách thực tế (từ TrackAsia)
+            ├── ⏱️ ETA chính xác (từ TrackAsia OSRM)
+            └── Nút "Đổi" → quay lại chọn cơ sở khác
+               │
+  T+...     🚗 CẬP NHẬT REALTIME:
+            ├── GPS stream cập nhật vị trí mỗi 10m di chuyển
+            ├── Polyline grey/red cập nhật theo closest point
+            └── Icon 🚑 di chuyển theo vị trí thực
+
 ═══════════════════════════════════════════════════════════════════════════
 
-  LUỒNG A (HIỆN ẢNH):   SOS → GPS → Gửi BE → Nhận đích → Vẽ đường → XONG
-  LUỒNG B (NGẦM):       SOS → BE → KNN → Z-Axis → SMS/Call cứu hộ (không chờ)
+  TÓM TẮT LUỒNG:
+  Phase 1 (auto):  SOS → GPS chính xác → Scan BE → Hiển thị danh sách
+  Phase 2 (user):  Chọn cơ sở y tế
+  Phase 3 (auto):  TrackAsia route → Vẽ đường → ETA chính xác → Dẫn đường
+  Luồng ngầm:      Z-Axis → SMS/Call cứu hộ (future, không chặn UI)
+
+  💡 User có thể BẤM "Đổi" bất kỳ lúc nào → quay lại Phase 2
 ```
 
 ---
@@ -196,7 +230,7 @@
 
 ```
 ═══════════════════════════════════════════════════════════════════════════
-  POST /api/sos
+  POST /api/sos/scan   ← API CHÍNH (MỚI — trả nhiều cơ sở)
 ═══════════════════════════════════════════════════════════════════════════
 
   REQUEST:
@@ -213,17 +247,25 @@
   RESPONSE (200 OK — SUCCESS):
   ┌───────────────────────────────────────────────────────────────────┐
   │ {                                                                 │
-  │   "facilityId": 3,                                                │
-  │   "facilityName": "Bệnh viện Từ Dũ",                              │
-  │   "facilityAddress": "125 Cống Quỳnh, Q.1",                       │
-  │   "phone": "02838400752",                                         │
-  │   "facilityType": "bệnh viện",                                    │
-  │   "destLatitude": 10.7625,                                        │
-  │   "destLongitude": 106.6825,                                      │
-  │   "distanceMeters": 1200.5,                                       │
-  │   "estimatedMinutes": 4,                                          │
   │   "status": "SUCCESS",                                            │
-  │   "zMetadata": {                          ← NGẦM, FE không dùng    │
+  │   "facilities": [                                                 │
+  │     {                                                             │
+  │       "facilityId": 1,                                            │
+  │       "facilityName": "Bệnh viện Từ Dũ",                          │
+  │       "facilityAddress": "125 Cống Quỳnh, Q.1",                   │
+  │       "phone": "02838400752",                                     │
+  │       "facilityType": "bệnh viện",                                │
+  │       "destLatitude": 10.7625,                                    │
+  │       "destLongitude": 106.6825,                                  │
+  │       "distanceMeters": 1200.5,                                   │
+  │       "estimatedMinutes": 4                                       │
+  │     },                                                            │
+  │     { ... },  ← cơ sở 2 (sắp xếp theo khoảng cách tăng dần)     │
+  │     { ... },  ← cơ sở 3                                          │
+  │     { ... },  ← cơ sở 4                                          │
+  │     { ... }   ← cơ sở 5 (tối đa 5, bán kính 10km)               │
+  │   ],                                                              │
+  │   "zMetadata": {                          ← NGẦM, FE không dùng  │
   │     "floorNumber": "Tầng 5",                                      │
   │     "roomNumber": "Phòng 501",                                    │
   │     "addressLabel": "Nhà riêng",                                  │
@@ -235,9 +277,17 @@
   RESPONSE (200 OK — NO FACILITY):
   ┌─────────────────────────────────────────┐
   │ {                                       │
-  │   "status": "NO_FACILITY_FOUND"         │
+  │   "status": "NO_FACILITY_FOUND",        │
+  │   "facilities": []                      │
   │ }                                       │
   └─────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════
+  POST /api/sos        ← API CŨ (backward compatibility, trả 1 cơ sở)
+═══════════════════════════════════════════════════════════════════════════
+
+  REQUEST:  (giống /api/sos/scan)
+  RESPONSE: SosResponse (1 cơ sở duy nhất — legacy)
 
 ```
 
