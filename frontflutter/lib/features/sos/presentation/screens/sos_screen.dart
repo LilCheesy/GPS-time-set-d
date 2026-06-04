@@ -82,8 +82,14 @@ class _SosScreenState extends ConsumerState<SosScreen> {
     if (sosState.hasScanResults) {
       // Fit map to show all facility markers
       _fitMapToFacilities(sosState.facilities);
-      // Show bottom sheet for selection
-      _showFacilitySelection();
+      
+      // Auto-select the nearest facility (first in the list) and find route
+      final nearestFacility = sosState.facilities.first;
+      await sosNotifier.selectFacility(
+        facility: nearestFacility,
+        userLat: _currentLocation.latitude,
+        userLng: _currentLocation.longitude,
+      );
     }
   }
 
