@@ -1,4 +1,5 @@
 import 'package:frontflutter/features/sos/data/datasources/sos_remote_datasource.dart';
+import 'package:frontflutter/features/sos/data/models/sos_multi_response.dart';
 import 'package:frontflutter/features/sos/data/models/sos_request.dart';
 import 'package:frontflutter/features/sos/data/models/sos_response.dart';
 import 'package:frontflutter/features/sos/data/models/trackasia_route.dart';
@@ -12,6 +13,11 @@ class SosRepositoryImpl implements SosRepository {
   @override
   Future<SosResponse> sendSos(SosRequest request) {
     return _remoteDatasource.sendSos(request);
+  }
+
+  @override
+  Future<SosMultiResponse> scanFacilities(SosRequest request) {
+    return _remoteDatasource.scanFacilities(request);
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:frontflutter/core/constants/app_constants.dart';
+import 'package:frontflutter/features/sos/data/models/sos_multi_response.dart';
 import 'package:frontflutter/features/sos/data/models/sos_request.dart';
 import 'package:frontflutter/features/sos/data/models/sos_response.dart';
 import 'package:frontflutter/features/sos/data/models/trackasia_route.dart';
@@ -11,7 +12,9 @@ class SosRemoteDatasource {
   SosRemoteDatasource({Dio? dio})
       : _dio = dio ??
             Dio(BaseOptions(
-              timeout: AppConstants.requestTimeout,
+              connectTimeout: AppConstants.requestTimeout,
+              receiveTimeout: AppConstants.requestTimeout,
+              sendTimeout: AppConstants.requestTimeout,
             ));
 
   /// Send SOS request to backend
@@ -27,7 +30,24 @@ class SosRemoteDatasource {
 
       return SosResponse.fromJson(response.data);
     } on DioException catch (e) {
-      throw _handleDioError(e);
+      throw Exception(_handleDioError(e));
+    }
+  }
+
+  /// Scan for multiple nearby medical facilities
+  Future<SosMultiResponse> scanFacilities(SosRequest request) async {
+    try {
+      final response = await _dio.post(
+        '${AppConstants.backendBaseUrl}${AppConstants.sosScanEndpoint}',
+        data: request.toJson(),
+        options: Options(
+          contentType: Headers.jsonContentType,
+        ),
+      );
+
+      return SosMultiResponse.fromJson(response.data);
+    } on DioException catch (e) {
+      throw Exception(_handleDioError(e));
     }
   }
 
@@ -58,11 +78,11 @@ class SosRemoteDatasource {
 
       return TrackAsiaRoute.fromJson(response.data);
     } on DioException catch (e) {
-      throw _handleDioError(e);
+      throw Exception(_handleDioError(e));
     }
   }
 
-  /// Handle Dio errors and convert to appropriate exceptions
+  /// Handle Dio errors and convert to appropriate error messages
   String _handleDioError(DioException error) {
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
@@ -88,3 +108,4 @@ class SosRemoteDatasource {
     }
   }
 }
+

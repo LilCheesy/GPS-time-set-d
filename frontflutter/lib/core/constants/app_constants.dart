@@ -2,6 +2,7 @@ class AppConstants {
   // Backend API Configuration
   static const String backendBaseUrl = 'http://10.0.2.2:8080';
   static const String sosEndpoint = '/api/sos';
+  static const String sosScanEndpoint = '/api/sos/scan';
 
   // TrackAsia Routing API
   static const String trackAsiaRouterUrl =
