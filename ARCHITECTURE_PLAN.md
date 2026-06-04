@@ -59,84 +59,56 @@
 ═══════════════════════════════════════════════════════════════════════════
 
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  PHASE 1: XÁC ĐỊNH VỊ TRÍ + QUÉT CƠ SỞ Y TẾ (tự động, ~1s)     │
+  │  PHASE 1: QUÉT & TỰ ĐỘNG CHỌN CƠ SỞ GẦN NHẤT (auto, ~1s)         │
   └─────────────────────────────────────────────────────────────────────┘
 
   T+0.0s    👩 MẸ BẦU BẤM NÚT SOS 🔴
                │
                ▼
   T+0.1s    📍 LẤY GPS CHÍNH XÁC (High Accuracy, fresh fix)
-            - Thử LocationAccuracy.best (timeout 5s)
-            - Nếu timeout → fallback LocationAccuracy.high
-            - Không dùng cache → tọa độ mới nhất
                │
                ▼
   T+0.3s    📤 Gửi POST /api/sos/scan
-            { lat, lng, userId }
                │
                ▼
-  T+0.4s    🚑 BACKEND XỬ LÝ:
-            ├── 🔍 PostGIS KNN: Tìm 5 cơ sở y tế gần nhất (≤10km)
-            │   SELECT * ORDER BY location <-> point LIMIT 5
-            ├── 📏 Tính khoảng cách + ETA ước tính (Haversine) cho MỖI cơ sở
-            └── 🔎 Z-AXIS CHECK (ngầm): kiểm tra user ở nhà → gắn metadata
+  T+0.4s    🚑 BACKEND: Tìm 5 cơ sở gần nhất (PostGIS KNN), tính khoảng cách
                │
   T+0.6s    ✅ TRẢ VỀ SosMultiResponse
-            { status, facilities: [{name, distance, eta}, ...], zMetadata }
                │
                ▼
-  T+0.7s    📱 FE HIỂN THỊ:
-            ├── 🗺️ Markers TẤT CẢ cơ sở y tế trên bản đồ
-            └── 📋 Bottom Sheet: danh sách cơ sở (tên, khoảng cách, ETA)
-                Cơ sở gần nhất được đánh dấu "Gần nhất" ✅
+  T+0.7s    📱 FE TỰ ĐỘNG XỬ LÝ:
+            ├── 🗺️ Fit bản đồ chứa tất cả các marker
+            └── 🤖 Tự động chọn cơ sở đầu tiên (Gần nhất) từ danh sách
 
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  PHASE 2: USER CHỌN CƠ SỞ Y TẾ (chờ user tap)                   │
+  │  PHASE 2: TÌM ĐƯỜNG & DẪN ĐƯỜNG NGAY LẬP TỨC (auto, ~0.5s)       │
   └─────────────────────────────────────────────────────────────────────┘
 
-  T+???     👩 CHỌN 1 CƠ SỞ từ danh sách (tap vào card hoặc marker)
+  T+0.8s    🗺️ Gọi TrackAsia Routing API tới cơ sở vừa được tự động chọn
+               │
+  T+1.1s    📐 Nhận route (polyline, distance, duration)
+               │
+  T+1.2s    🖌️ VẼ ĐƯỜNG & HIỂN THỊ UI:
+            ├── Decode polyline6 → Vẽ đường (xám/đỏ)
+            └── Hiển thị Navigation Panel (Tên viện, Quãng đường, ETA)
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │  PHASE 3 (TÙY CHỌN): USER MUỐN ĐỔI BỆNH VIỆN KHÁC                 │
+  └─────────────────────────────────────────────────────────────────────┘
+
+  T+???     👩 BẤM NÚT "ĐỔI" TRÊN NAVIGATION PANEL
                │
                ▼
-
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  PHASE 3: TÌM ĐƯỜNG + DẪN ĐƯỜNG (tự động sau khi chọn, ~0.5s)   │
-  └─────────────────────────────────────────────────────────────────────┘
-
-  T+0.0s    🗺️ Gọi TrackAsia Routing API
-            GET /v1/route/v1/driving/{user_lng,lat};{dest_lng,lat}
-            ?overview=full&geometries=polyline6&steps=true
+            📋 Hiện Bottom Sheet danh sách 5 cơ sở (kèm khoảng cách & ETA)
                │
-  T+0.3s    📐 Nhận route:
-            ├── polyline geometry (chuỗi encoded)
-            ├── distance (mét) — khoảng cách THỰC TẾ theo đường đi
-            └── duration (giây) — ETA CHÍNH XÁC từ OSRM engine
-               │
-  T+0.4s    🖌️ VẼ ĐƯỜNG LÊN MAP:
-            ├── Decode polyline6 → List<LatLng>
-            ├── Đoạn ĐÃ ĐI → polyline MÀU XÁM (width: 8)
-            ├── Đoạn CHƯA ĐI → polyline MÀU ĐỎ (width: 8)
-            └── Marker cơ sở được chọn → ICON ĐỎ TO
-               │
-  T+0.5s    📊 HIỂN THỊ NAVIGATION PANEL:
-            ├── Tên cơ sở y tế
-            ├── Khoảng cách thực tế (từ TrackAsia)
-            ├── ⏱️ ETA chính xác (từ TrackAsia OSRM)
-            └── Nút "Đổi" → quay lại chọn cơ sở khác
-               │
-  T+...     🚗 CẬP NHẬT REALTIME:
-            ├── GPS stream cập nhật vị trí mỗi 10m di chuyển
-            ├── Polyline grey/red cập nhật theo closest point
-            └── Icon 🚑 di chuyển theo vị trí thực
+            👩 Chọn cơ sở mới → Quay lại PHASE 2 (tìm & vẽ lại đường)
 
 ═══════════════════════════════════════════════════════════════════════════
 
   TÓM TẮT LUỒNG:
-  Phase 1 (auto):  SOS → GPS chính xác → Scan BE → Hiển thị danh sách
-  Phase 2 (user):  Chọn cơ sở y tế
-  Phase 3 (auto):  TrackAsia route → Vẽ đường → ETA chính xác → Dẫn đường
-  Luồng ngầm:      Z-Axis → SMS/Call cứu hộ (future, không chặn UI)
-
-  💡 User có thể BẤM "Đổi" bất kỳ lúc nào → quay lại Phase 2
+  Auto-flow: SOS → GPS → Scan BE → Tự chọn gần nhất → TrackAsia → Dẫn đường
+  Optional:  Bấm "Đổi" → Hiện danh sách → Chọn cơ sở khác → Dẫn đường lại
+  Ngầm:      Z-Axis → SMS/Call cứu hộ (không chặn UI)
 ```
 
 ---
