@@ -1,12 +1,23 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 class AppConstants {
   // Backend API Configuration
-  static const String backendBaseUrl = 'http://10.0.2.2:8080';
+  static String get backendBaseUrl {
+    if (kIsWeb) return 'http://127.0.0.1:8080';
+    try {
+      if (Platform.isAndroid) return 'http://10.0.2.2:8080';
+    } catch (e) {
+      // Fallback if Platform check fails
+    }
+    return 'http://127.0.0.1:8080';
+  }
   static const String sosEndpoint = '/api/sos';
   static const String sosScanEndpoint = '/api/sos/scan';
 
-  // TrackAsia Routing API
+  // TrackAsia/OSRM Routing API
   static const String trackAsiaRouterUrl =
-      'https://router.track-asia.com/v1/route/v1/driving';
+      'http://router.project-osrm.org/route/v1/driving';
 
   // Default coordinates (Bệnh viện Từ Dũ — fallback location)
   static const double defaultLatitude = 10.7625;

@@ -64,8 +64,20 @@ class _SosScreenState extends ConsumerState<SosScreen> {
 
     if (!mounted) return;
 
-    // Step 3: Show facility list bottom sheet
+    // Step 3: Check results and show facility list or errors
     final sosState = ref.read(sosProvider);
+    
+    if (sosState.error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Lỗi kết nối: ${sosState.error}'),
+          backgroundColor: Colors.red.shade600,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     if (sosState.scanResponse?.isNoFacilityFound ?? false) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
