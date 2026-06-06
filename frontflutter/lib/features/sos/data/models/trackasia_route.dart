@@ -22,7 +22,7 @@ class TrackAsiaRoute {
 
 @JsonSerializable()
 class RouteObject {
-  final String geometry;
+  final dynamic geometry; // Changed to dynamic to support geojson Map
   final List<Leg> legs;
   final double distance;
   final double duration;
@@ -59,17 +59,38 @@ class Leg {
 
 @JsonSerializable()
 class Step {
-  final String geometry;
+  final dynamic geometry; // Changed to dynamic to support geojson
   final double distance;
   final double duration;
+  final String? name;
+  final Maneuver? maneuver;
 
   Step({
     required this.geometry,
     required this.distance,
     required this.duration,
+    this.name,
+    this.maneuver,
   });
 
   factory Step.fromJson(Map<String, dynamic> json) => _$StepFromJson(json);
 
   Map<String, dynamic> toJson() => _$StepToJson(this);
+}
+
+@JsonSerializable()
+class Maneuver {
+  final String? instruction;
+  final String? type;
+  final String? modifier;
+
+  Maneuver({
+    this.instruction,
+    this.type,
+    this.modifier,
+  });
+
+  factory Maneuver.fromJson(Map<String, dynamic> json) => _$ManeuverFromJson(json);
+
+  Map<String, dynamic> toJson() => _$ManeuverToJson(this);
 }
