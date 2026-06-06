@@ -38,10 +38,8 @@ dependencies:
   # HTTP Client
   dio: ^5.4.0
 
-  # Maps & Location
-  flutter_map: ^6.1.0
+    # Maps & Location
   geolocator: ^10.1.0
-  latlong2: ^0.9.1
 
   # State Management
   riverpod: ^2.4.0
@@ -54,11 +52,11 @@ dependencies:
   # Environment Variables
   flutter_dotenv: ^5.1.0
 
-  # Polyline Decoder (manual implementation in core/utils/)
-  # polyline package removed — incompatible with Dart 3.12+ null safety
+    # Polyline Decoder (uses trackasia_gl LatLng)
 
   # Date/Time
   intl: ^0.19.0
+  maplibre_gl: ^0.26.1
 
 dev_dependencies:
   flutter_test:
