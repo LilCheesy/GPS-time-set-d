@@ -4,7 +4,7 @@ import 'package:frontflutter/features/sos/data/models/sos_multi_response.dart';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:frontflutter/features/sos/data/datasources/sos_remote_datasource.dart';
 import 'package:frontflutter/features/sos/data/models/sos_request.dart';
 import 'package:frontflutter/features/sos/data/models/sos_response.dart';
@@ -43,6 +43,8 @@ class SosState {
   final LatLng? currentLocation;
   final int? routeEtaMinutes;
   final double? routeDistanceMeters;
+  final String? currentInstruction;
+  final bool isNavigationStarted;
 
   SosState({
     this.sosResponse,
@@ -59,6 +61,8 @@ class SosState {
     this.currentLocation,
     this.routeEtaMinutes,
     this.routeDistanceMeters,
+    this.currentInstruction,
+    this.isNavigationStarted = false,
   });
 
   /// Whether we are in navigation mode (facility selected + route loaded)
@@ -88,6 +92,9 @@ class SosState {
     bool clearRouteEta = false,
     double? routeDistanceMeters,
     bool clearRouteDistance = false,
+    String? currentInstruction,
+    bool clearInstruction = false,
+    bool? isNavigationStarted,
   }) {
     return SosState(
       sosResponse: sosResponse ?? this.sosResponse,
@@ -110,6 +117,10 @@ class SosState {
       routeDistanceMeters: clearRouteDistance
           ? null
           : (routeDistanceMeters ?? this.routeDistanceMeters),
+      currentInstruction: clearInstruction
+          ? null
+          : (currentInstruction ?? this.currentInstruction),
+      isNavigationStarted: isNavigationStarted ?? this.isNavigationStarted,
     );
   }
 }
@@ -137,6 +148,7 @@ class SosNotifier extends StateNotifier<SosState> {
       currentPolylineIndex: 0,
       clearRouteEta: true,
       clearRouteDistance: true,
+      isNavigationStarted: false,
     );
 
     try {
@@ -175,6 +187,7 @@ class SosNotifier extends StateNotifier<SosState> {
       polylinePoints: [],
       clearRouteEta: true,
       clearRouteDistance: true,
+      isNavigationStarted: false,
     );
 
     try {
@@ -190,12 +203,18 @@ class SosNotifier extends StateNotifier<SosState> {
         // Extract ETA from TrackAsia (duration is in seconds)
         final etaMinutes = (routeObj.duration / 60).ceil();
         final distanceMeters = routeObj.distance;
+        
+        String? firstInstruction;
+        if (routeObj.legs.isNotEmpty && routeObj.legs.first.steps.isNotEmpty) {
+          firstInstruction = routeObj.legs.first.steps.first.maneuver?.instruction;
+        }
 
         state = state.copyWith(
           route: route,
           isFetchingRoute: false,
           routeEtaMinutes: etaMinutes,
           routeDistanceMeters: distanceMeters,
+          currentInstruction: firstInstruction ?? 'Đi theo tuyến đường được chỉ dẫn',
         );
       } else {
         state = state.copyWith(
@@ -285,7 +304,24 @@ class SosNotifier extends StateNotifier<SosState> {
         state.polylinePoints,
         location,
       );
-      state = state.copyWith(currentPolylineIndex: closestIndex);
+      
+      // Try to find the matching step based on distance
+      String? nextInstruction = state.currentInstruction;
+      if (state.route?.routes.isNotEmpty == true && state.route!.routes.first.legs.isNotEmpty) {
+        final steps = state.route!.routes.first.legs.first.steps;
+        // Simple heuristic: as we progress, we show the next step.
+        // A full implementation would match coordinates, but this gives a quick dynamic feel.
+        final progress = closestIndex / state.polylinePoints.length;
+        final stepIndex = (progress * steps.length).floor().clamp(0, steps.length - 1);
+        if (stepIndex < steps.length) {
+          nextInstruction = steps[stepIndex].maneuver?.instruction ?? nextInstruction;
+        }
+      }
+
+      state = state.copyWith(
+        currentPolylineIndex: closestIndex,
+        currentInstruction: nextInstruction,
+      );
     }
   }
 
@@ -302,7 +338,12 @@ class SosNotifier extends StateNotifier<SosState> {
       currentPolylineIndex: 0,
       clearRouteEta: true,
       clearRouteDistance: true,
+      isNavigationStarted: false,
     );
+  }
+
+  void startNavigation() {
+    state = state.copyWith(isNavigationStarted: true);
   }
 
   void reset() {
