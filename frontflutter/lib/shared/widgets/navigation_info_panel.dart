@@ -7,13 +7,19 @@ class NavigationInfoPanel extends StatelessWidget {
   final FacilityInfo facility;
   final int? routeEtaMinutes;
   final double? routeDistanceMeters;
+  final String? currentInstruction;
+  final bool isNavigationStarted;
   final VoidCallback onChangeFacility;
+  final VoidCallback onStartNavigation;
 
   const NavigationInfoPanel({
     required this.facility,
     this.routeEtaMinutes,
     this.routeDistanceMeters,
+    this.currentInstruction,
+    required this.isNavigationStarted,
     required this.onChangeFacility,
+    required this.onStartNavigation,
     Key? key,
   }) : super(key: key);
 
@@ -56,6 +62,34 @@ class NavigationInfoPanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Navigation Instruction Banner (Only when started)
+          if (isNavigationStarted && currentInstruction != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.turn_right, color: Colors.blue.shade700, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      currentInstruction!,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blue.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           // Facility name + type badge
           Row(
             children: [
@@ -106,6 +140,28 @@ class NavigationInfoPanel extends StatelessWidget {
               ),
             ],
           ),
+          if (!isNavigationStarted) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onStartNavigation,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade600,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.navigation),
+                label: const Text(
+                  'Bắt đầu dẫn đường',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
