@@ -15,13 +15,13 @@ class AppConstants {
   static const String sosEndpoint = '/api/sos';
   static const String sosScanEndpoint = '/api/sos/scan';
 
-  // TrackAsia/OSRM Routing API
+  // TrackAsia Routing API
   static const String trackAsiaRouterUrl =
-      'http://router.project-osrm.org/route/v1/driving';
+      'https://maps.track-asia.com/route/v1/car';
 
-  // Default coordinates (Bệnh viện Từ Dũ — fallback location)
-  static const double defaultLatitude = 10.7625;
-  static const double defaultLongitude = 106.6825;
+  // Default coordinates (Hà Nội — fallback location)
+  static const double defaultLatitude = 21.0285;
+  static const double defaultLongitude = 105.8542;
 
   // Map configuration
   static const double defaultZoomLevel = 16.0;
@@ -36,7 +36,7 @@ class AppConstants {
   static const Duration iconAnimationDuration = Duration(milliseconds: 300);
 
   // Request timeout
-  static const Duration requestTimeout = Duration(seconds: 10);
+  static const Duration requestTimeout = Duration(seconds: 3);
 
   // SOS Button dimensions
   static const double sosButtonSize = 80.0;

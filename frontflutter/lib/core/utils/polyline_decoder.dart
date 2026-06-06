@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'package:latlong2/latlong.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
 /// Decodes polyline-encoded strings (precision 5 or 6) into coordinates.
 /// This replaces the removed 'polyline' package with a manual implementation.
